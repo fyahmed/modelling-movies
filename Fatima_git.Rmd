@@ -1,0 +1,817 @@
+---
+title: "Movies Modelling"
+author: "Fatima Ahmed"
+date: "February 04, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Introduction
+This is a dataset of movies. It contains various details about movies for our analysis. It consists of two datasets - one with movies and the other with credits. I want to analyse the given two datasets to answer questions about the film industry like what is the average IMDB rating of movies in a year, who is the highest paying actor ,which is the highest grossing movie, movie with highest budget etc. I can also use this dataset to predict whether a movie is a r based on its cast, budget or production house.
+
+
+## Proposed analysis
+how different genres affect the popularity and revenue of a movie - Which movie stars are highly paid - which genres are popular country wise - does the runtime of a movie affect it's success
+I plan to use histograms and scatterplots to see the trend of IMDB scores based on genres, countirs, directors.
+
+#load libraries
+```{r}
+#install.packages("GGally")
+library(ggplot2)
+library(stringr)##String Manipulation
+library(ggplot2movies)
+library(dplyr)
+library(lubridate) # Recall the library lubridate
+library("corrplot")
+library(GGally)
+library(readr)
+library(plyr) #data manipulation
+library(tidyverse)# data manipulation
+library(jsonlite) #JSON format 
+library(RColorBrewer) # Color Theme
+library(data.table)
+library(reshape2)
+
+```
+
+## Import file 
+```{r}
+setwd("~/")
+movies <- read_csv("~/tmdb_5000_movies.csv")
+#credits <- read_csv("~/credits.csv")
+
+
+head(movies)
+#head(credits)
+```
+
+
+## Understand the data structure 
+```{r}
+str(movies)
+dim(movies)
+#str(credits)
+#dim(credits)
+```
+
+## change data format to remove scientific notation
+```{r}
+#movies$revenue<-format(movies$revenue)
+#movies$budget<-format(movies$budget)
+#str(movies)
+
+```
+
+## Summarize data structure before you extract and parse data for JSON format variables
+```{r}
+#summary(credits)
+summary(movies)
+
+```
+
+
+#DATA CLEANSING 
+
+```{r}
+# Remove NAs 
+
+movies <- na.omit(movies)
+## second method
+## CompleteCases_Index <-complete.cases(movies)
+###b movies <- movies[CompleteCases_Index, ]
+
+##Check for number of NAs
+sum(is.na(movies))
+```
+
+
+## PARSING FOR MOVIES DATA 
+
+
+```{r}
+#Genres column in json format,change to columns
+
+Movies2 = movies %>% filter(nchar(genres) > 2) %>% mutate(js = lapply(genres,fromJSON)) %>% unnest(js) %>% select(id,title,genre = name) # filter and aggregrate genres variables 
+
+Movies3 = movies %>% filter(nchar(production_companies) > 2) %>% mutate(js = lapply(production_companies,fromJSON)) %>% unnest(js) %>% select(id,title,production_companies= name) # filter and aggregrate production companies  variables 
+
+Movies4 = movies %>% filter(nchar(production_countries) > 2) %>% mutate(js = lapply(production_countries,fromJSON)) %>% unnest(js) %>% select(id,title,production_countries= name) # filter and aggregrate production companies  variables 
+
+## second method to convert JSon format
+#Movies<-movies %>% select('id','genres')
+#Movies2<-purrr::map(Movies$genres, jsonlite::fromJSON)
+#Movies3<-do.call(rbind.data.frame, Movies2)
+#Movies4<-genredf [order(Movies3$id),]
+
+```
+
+
+## transform and aggregrate genres based on id
+
+```{r}
+
+library(data.table)
+
+# convert all movies  data  into a data.table
+  setDT(Movies2)
+  setDT(Movies3)
+  setDT(Movies4)
+  
+
+# step 1: gather productsku values by transaction id
+  temp <- Movies2[, .(product = toString(genre)), by = list(id)]
+  temp2 <- Movies3[, .(product = toString(production_companies)), by = list(id)]
+  temp3 <- Movies4[, .(product = toString(production_countries)), by = list(id)]
+
+# step 2: separate productsku values in different columns
+  temp[, c("genre1", "genre2", "genre3","genre4","genre5","genre6","genre7","genre8") := tstrsplit(product, ",", fill="")] # you can also use fill=NA
+  temp2[, c("Comp1", "Comp2", "Comp3","Comp4","Comp5") := tstrsplit(product, ",", fill="")] # you can also use fill=NA
+  temp3[, c("Country1", "Country2", "Country3","Country4","Country5") := tstrsplit(product, ",", fill="")] # you can also use fill=NA
+
+```
+
+
+
+```{r}
+
+movies_2 <- subset(movies, select = -c(genres,overview,homepage, keywords,status,release_date, original_language,production_companies, spoken_languages, production_countries,tagline,title)) ## discard non predictor varaibles 
+
+
+
+movies_m1<-merge(x = movies_2, y =temp, by = "id", all.x=TRUE) # merge genres and movies datatset 
+movies_m2<-merge(x = movies_m1, y =temp2, by = "id", all.x=TRUE) # merge genres and movies datatset 
+movies_m3<-merge(x = movies_m2, y =temp3, by = "id", all.x=TRUE) # merge genres and movies datatset 
+
+movies_all<-subset(movies_m3, select = -c(id,product.y,  product.x ))
+summary(movies_all)
+
+```
+
+
+```{r}
+set.seed(335)
+split <- sample(seq_len(nrow(movies_all)), size = floor(0.9999 * nrow(movies_all)))
+movies_merge <- movies_all[split, ]
+test <- movies_all[-split, ]
+dim(movies_merge)
+```
+
+
+
+## select all numerical Variables 
+```{r}
+## First approach(manual selections)
+
+vars <- names(movies_merge) %in% c('popularity', 'vote_average', 'budget', 'vote_count','runtime','revenue')
+selected_train <- movies_merge[vars]
+
+## second approach(automated)
+## numerical<-movies_merge[ , sapply(movies_merge, is.numeric)]
+```
+
+
+
+
+
+# analyzing numerical variables with Histogram 
+```{r}
+#d1 <- ggplot(data = movies_merge, aes(y = Vote_count, x = popularity, colour = genres)) + geom_point()
+
+hist(movies_merge$vote_count, xlab = "Vote_count", prob=TRUE, main = "Vote_Count")
+lines(density(movies_merge$vote_count), col="blue", lwd=2)
+## range(movies_merge$vote_count)
+
+ggplot(aes(x=runtime), data=movies_merge) + 
+  geom_histogram(aes(y=100*(..count..)/sum(..count..)), color='black', fill='white', binwidth = 5) + ylab('percentage') + ggtitle('Run Time')
+
+ggplot(aes(x=vote_average), data=movies_merge) +
+  geom_histogram(aes(y=100*(..count..)/sum(..count..)), color='black', fill='white', binwidth = 0.5) + ylab('percentage') + ggtitle('Vote_average')
+
+
+ggplot(aes(x=vote_count), data=movies_merge) +
+  geom_histogram(aes(y=100*(..count..)/sum(..count..)), color='black', fill='white', binwidth = 500) + ylab('percentage') + ggtitle('Vote_count')
+
+
+
+ggplot(aes(x=budget), data=movies_merge) +
+  geom_histogram(aes(y=100*(..count..)/sum(..count..)), color='black', fill='white', binwidth = 100000) + ylab('percentage') + ggtitle('Budget')
+
+ggplot(aes(x=revenue), data=movies_merge) +
+  geom_histogram(aes(y=100*(..count..)/sum(..count..)), color='black', fill='white', binwidth = 100000) + ylab('percentage') + ggtitle('Revenue')
+
+
+```
+
+
+##correlation between all numerical variables and  popularity 
+```{r}
+##correlation between vote count and popularity 
+ggplot(movies_merge, aes(x=vote_count, y=popularity)) + geom_point() + stat_smooth(method=lm, level=0.99)+ ggtitle('Popular vs vote count')
+
+
+##correlation between revenue and popularity 
+ggplot(movies_merge, aes(x=revenue, y=popularity)) + geom_point() + stat_smooth(method=lm, level=0.99)+ ggtitle('Popular vs revenue')
+
+##correlation between budget and popularity 
+ggplot(movies_merge, aes(x=budget, y=popularity)) + geom_point() + stat_smooth(method=lm, level=0.99)+ ggtitle('Popular vs budget')
+
+##correlation between runtime and popularity 
+ggplot(movies_merge, aes(x=runtime, y=popularity)) + geom_point() + stat_smooth(method=lm, level=0.99)+ ggtitle('Popular vs runtime')
+
+##correlation between runtime and popularity 
+ggplot(movies_merge, aes(x=vote_average, y=popularity)) + geom_point() + stat_smooth(method=lm, level=0.99)+ ggtitle('Popular vs runtime')
+```
+
+
+
+## Correlation between numerical variables
+```{r}
+
+
+corr.matrix <- cor(selected_train)
+corrplot(corr.matrix, main="Correlation Plot of numerical variables", method="number")
+
+
+#movies_pred$budget<-as.numeric(movies_pred$budget)
+#movies_pred$revenue<-as.numeric(movies_pred$revenue)
+#str(movies_pred)
+
+#summary(movies_pred)
+```
+
+One predictor, vote count is correlated at 0.72 (collinearity), while two others, revenue and budget are somewhat correlated to popularity, at 0.59 and 0.45 respectively. Therefore I will only use vote count and revenue in my model.
+
+
+
+## additional correlation of numerical variables
+
+```{r}
+ggpairs(data=selected_train, columns=1:6, title="numerical variables movies data")
+
+
+```
+
+## analyze categorical variables using bar plots
+```{r}
+
+## genres
+
+ggplot(aes(x=genre1), data=movies_merge) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')  + ggtitle('genre1') + coord_flip()
+
+
+ggplot(movies_merge, aes(x=genre2)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('genre2')
+
+ggplot(movies_merge, aes(x=genre3)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage') + coord_flip()  + ggtitle('genre3')
+
+ggplot(aes(x=genre4), data=movies_merge)  + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')  + coord_flip() + ggtitle('genre4')
+
+
+ggplot(movies_merge, aes(x=genre5)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage') + coord_flip() + ggtitle('genre5')
+
+ggplot(movies_merge, aes(x=genre6)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage') + coord_flip()  + ggtitle('genre6')
+
+ggplot(aes(x=genre7), data=movies_merge)  + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')  + coord_flip() + ggtitle('genre7')
+  
+ggplot(movies_merge, aes(x=genre8)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage') + coord_flip() + ggtitle('genre8')
+
+
+
+
+## countries
+ggplot(movies_merge, aes(x=Country1)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('Production country 1')
+ggplot(movies_merge, aes(x=Country2)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('Production country 2')
+ggplot(movies_merge, aes(x=Country3)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('Production country 3')
+    
+
+```
+
+
+None of the categorical variables have reasonable spread of distribution. The majority of the movies skews to drama for genre1  (or blanks in other genres) there our results could be biased toward drama movies. Therefore, i will only use genre 1 in my model since there seems to be more useful information in this genre variable compared to ther other, I will test out genre 2 and 3 to see its results in my model. Majority of the movies were made in the United states so we can infer that our results might be biased to movies produced in the US
+
+
+```{r}
+## companies
+ggplot(movies_merge, aes(x=Comp1)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('Production company 1')
+ggplot(movies_merge, aes(x=Comp2)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('Production company 2')
+ggplot(movies_merge, aes(x=Comp3)) + geom_bar(aes(y=100*(..count..)/sum(..count..))) + ylab('percentage')+ coord_flip() + ggtitle('Production company 3')
+
+
+```
+Due to the complicity of the production company, our barplot are messy and does have seem to provide any relevant information
+
+
+
+##Correlation between popularity and categorical variables 
+```{r}
+boxplot(popularity~genre1, data=movies_merge, main='popularity vs. genre1', xlab='genre1', ylab='popularity')
+by(movies_merge$popularity, movies_merge$genre1, summary)
+
+boxplot(popularity~genre2, data=movies_merge, main='popularity vs. genre2', xlab='genre2', ylab='popularity')
+by(movies_merge$popularity, movies_merge$genre2, summary)
+
+boxplot(popularity~genre3, data=movies_merge, main='popularity vs. genre3', xlab='genre3', ylab='popularity')
+by(movies_merge$popularity, movies_merge$genre3, summary)
+
+
+
+
+boxplot(popularity~Comp1, data=movies_merge, main='popularity vs. Comp1', xlab='comp1', ylab='popularity')
+by(movies_merge$popularity, movies_merge$Comp1, summary)
+
+boxplot(popularity~Comp2, data=movies_merge, main='popularity vs. Comp2', xlab='comp2', ylab='popularity')
+by(movies_merge$popularity, movies_merge$Comp2, summary)
+
+
+
+boxplot(popularity~Country1, data=movies_merge, main='popularity vs. Country1', xlab='Country1', ylab='popularity')
+by(movies_merge$popularity, movies_merge$Country1, summary)
+
+boxplot(popularity~Country2, data=movies_merge, main='popularity vs. Country2', xlab='Country2', ylab='popularity')
+by(movies_merge$popularity, movies_merge$Country2, summary)
+
+```
+
+
+
+
+## MODELLING 
+
+1.) Start with full model, then fine predictor with the has the lowest p value  which should be  the most correlated variable to our response variable. 
+
+2.) Stepwise model forward selection method, we start with an empty model, then add variables one at a time until a parsimonious model is reached
+
+```{r}
+full_model <- lm( popularity~vote_count+revenue+budget+vote_average+runtime+genre1+Country1+Comp1,data=movies_merge)
+summary(full_model)
+```
+
+vote_count has the lowest p value and is the most correlated variable to our response variable, we chose that as our first predictor. but first, lets create a model with only intercept and no predictor to analyze the initial degrees of freedom
+
+##Develop model using no predictors
+
+```{r}
+model_test <- lm(popularity~1, data=movies_merge)
+summary(model_test)
+```
+
+
+#Develop model using highest predictor
+
+```{r}
+model_test <- lm(popularity~vote_count, data=movies_merge)
+summary(model_test)
+```
+
+The 0.51 R-squared and almost zero p value indicate that vote_count is a statistically significant predictor of audience score
+Furthermore, adjusted R square is increasing and degree of freedom are decreasing. 
+
+
+
+## To find the second predictor, I look at the following model elimiating the variable already used 
+
+```{r}
+fit_model <- lm(popularity~revenue+budget+vote_average+runtime+genre1+Country1+Comp1,data=movies_merge)
+summary(fit_model)
+```
+
+
+We see that revenue now has the lowest p value and is the most correlated variable to our response variable, we chose that as our second predictor.
+
+
+#Develop model using our second predictor
+```{r}
+model_test <- lm(popularity~vote_count+revenue, data=movies_merge)
+summary(model_test)
+```
+
+After adding revenue in our model, the R-squared and Adjusted R-Squared both increased slighlty, the decreasing degree of freedom and  the almost zero p value indicate that revenue  is another statistically significant predictor of popularity 
+
+#Develop model using our third predictor
+
+```{r}
+fit_model <- lm(popularity~budget+vote_average+runtime+genre1+Country1+Comp1,data=movies_merge)
+summary(fit_model)
+```
+vote average has  the lowest p value now and thus will fit in our model as the third variable.
+
+```{r}
+model_test <- lm(popularity~vote_count+revenue+vote_average, data=movies_merge)
+summary(model_test)
+```
+Using vote_average did not improve our model hence we will not include this predictor in our variable. so will need to fit our third predictor
+
+#Develop model using our third predictor
+
+```{r}
+fit_model <- lm(popularity~budget+runtime+genre1+Country1+Comp1,data=movies_merge)
+summary(fit_model)
+```
+
+# Develop model using our third predictor
+```{r}
+model_test <- lm(popularity~vote_count+revenue+budget, data=movies_merge)
+summary(model_test)
+
+```
+
+```{r}
+model_test <- lm(popularity~vote_count+revenue+runtime,data=movies_merge)
+summary(model_test)
+```
+
+```{r}
+model_test <- lm(popularity~vote_count+revenue+runtime+budget,data=movies_merge)
+summary(model_test)
+```
+
+Placing budget and runtime or both in our model reduces the degrees of freedom by a point or two and doesn't increase or R sqaured at all hence we will not put tese predictor in our model 
+
+
+#Developing our third predictor retry
+
+```{r}
+
+model_test <- lm(popularity~vote_count+revenue+genre1,data=movies_merge)
+summary(model_test)
+
+
+```
+
+ adding genre in our model increased both  the R-squared and Adjusted R-Squared both increased slighlty,  decreased the degree of freedom and  the almost zero p value which indicates that genre  is another statistically significant predictor of popularity 
+
+
+
+After the above second fit, I did the following attempts:
+
+I added comp1 to the model but the Adjusted R-squared only decreased from 0.524 to 0.3264 while the p value is still almost zero
+therefore we will not Comp1  as a predictor.
+
+
+I added comp1 to the model but the Adjusted R-squared only decreased from 0.524 to 0.5117 the while the p value is still almost zero
+therefore we will not Country as a predictor.
+
+
+It is obvious that  runtime,budget,vote_average,Country1,Comp1 are not significant predictors, therefore, they will not be included in the model.
+
+
+```{r}
+model_test <- lm(popularity~vote_count+revenue+genre1,data=movies_merge)
+anova(model_test)
+```
+
+
+The final model depicts a Parsimonius Model: the simplest model with the highest predictive power. Only three predictors are used : vote_count,revenue and genre1 
+The ANOVA output confirms the significance of the individual predictors (i.e., p-values < 0.05)
+
+
+The linear regression model output confirm the significance of the individual predictors as well, but it also confirms the significance of the model as a whole (i.e., F-statistic: 79.12 on 21 and 1469 DF, p-value:< 2.2e-16).
+
+
+Finally, the proportion of variability in the response variable explained by the model is 52.4% (i.e. adjusted R-square).
+
+
+## TESTING OUR MODEL/ Model diagnostics
+
+
+```{r}
+
+ggplot(data = model_test, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  xlab("Fitted values") +
+  ylab("Residuals")
+```
+
+```{r}
+hist(model_test$residuals, prob=TRUE, main="Normality Condition")
+lines(density(model_test$residuals), col="blue", lwd=2)
+```
+
+
+
+```{r}
+plot(model_test$residuals ~ model_test$fitted.values, main="Variability conditions")
+```
+
+```{r}
+ggplot(data = model_test, aes(x = .resid)) +
+  geom_histogram(binwidth = 1, fill='white', color='black') +
+  xlab("Residuals")
+```
+
+
+
+### testing and predicting using our model 
+
+```{r}
+newmovie <- test %>% select(vote_count,revenue, genre1)
+predict(model_test, newmovie)
+```
+
+
+
+```{r}
+predict(fit3, newmovie, interval = "prediction", level = 0.95)
+```
+
+model_test
+
+
+Model diagnostics
+ggplot(data = fit3, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  xlab("Fitted values") +
+  ylab("Residuals")
+
+Intercept(-12.5142) is the estimated audience score for a movie with imdb_rating, audience_rating and genre at zero. It does not provide any meaningful interpretation here.
+imdb_rating coefficient(9.7844): All else hold constant, for every one unit increase in imdb_rating, the model predicts a 9.7844 increase in audience_score on average.
+audience_ratingUpright coefficient(20.3246): All else hold constant, the model predicts rating Upright movie is 20.3246 higher in audience score on average than rating Spilled movie.
+genreAnimation coefficient(3.6812): The model predicts that Animation films get an audience score that is 3.6812 higher than Action & Adventure(reference category) films on average after controlling for imdb_rating and audience rating.
+genreArt House & International coefficient(-2.7199): The model predicts that Art House & International films get an audience score that is 2.7199 lower than Action & Adventure films on average after controlling for imdb_rating and audience rating.
+There are total 11 genre categories in the dataset, the audience score can higher or lower than Action & Adventure films depends on what genre is selected.
+R-Squared(0.8847): 88.47% of the variablity in audience score can be explained by the model.
+
+
+```{r}
+model_test <- lm(popularity~vote_count+revenue, data=selected_train)
+summary(model_test)
+```
+
+
+
+     budget           popularity          revenue             runtime       vote_average     vote_count       genre1             genre2         
+ Min.   :0.00e+00   Min.   :  0.0237   Min.   :0.000e+00   Min.   :  0.0   Min.   :0.000   Min.   :    0   Length:1493        Length:1493       
+ 1st Qu.:7.50e+06   1st Qu.: 11.6242   1st Qu.:9.455e+06   1st Qu.: 95.0   1st Qu.:5.800   1st Qu.:  207   Class :character   Class :character  
+ Median :2.70e+07   Median : 25.2812   Median :6.255e+07   Median :106.0   Median :6.300   Median :  616   Mode  :character   Mode  :character  
+ Mean   :4.59e+07   Mean   : 35.7493   Mean   :1.550e+08   Mean   :108.7   Mean   :6.273   Mean   : 1324                                        
+ 3rd Qu.:6.30e+07   3rd Qu.: 45.1499   3rd Qu.:1.861e+08   3rd Qu.:120.0   3rd Qu.:6.900   3rd Qu.: 1652                                        
+ Max.   :3.80e+08   Max.   :875.5813   Max.   :2.788e+09   Max.   :201.0   Max.   :8.400   Max.   :13752                                        
+    genre3             genre4             genre5             genre6             genre7             genre8             Comp1              Comp2          
+ Length:1493        Length:1493        Length:1493        Length:1493        Length:1493        Length:1493        Length:1493        Length:1493       
+ Class :character   Class :character   Class :character   Class :character   Class :character   Class :character   Class :character   Class :character  
+ Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character  
+                                                                                                                                                        
+                                                                                                                                                        
+                                                                                                                                                        
+    Comp3              Comp4              Comp5             product            Country1           Country2           Country3           Country4        
+ Length:1493        Length:1493        Length:1493        Length:1493        Length:1493        Length:1493        Length:1493        Length:1493       
+ Class :character   Class :character   Class :character   Class :character   Class :character   Class :character   Class :character   Class :character  
+ Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character   Mode  :character  
+                                                                                                                                                        
+                                                                                                                                                        
+                                                                                                                                                        
+   Country5        
+ Length:1493       
+
+```{r}
+install.packages("pROC")
+install.packages("rpart")
+install.packages("caret")
+install.packages("caretEnsemble")
+install.packages("caTools")
+install.packages("ggplot2")
+install.packages("ISLR")
+
+```
+
+
+```{r}
+library("pROC")
+library("rpart")
+library("caret")
+library("caretEnsemble")
+library("caTools")
+library(ggplot2)
+
+```
+
+## 2nd Model approach 
+
+```{r}
+set.seed(233)
+inBuild <- createDataPartition(y = movies_merge$popularity, p = .7, list = FALSE)
+
+validationset<-movies_merge[-inBuild,] # validation set
+
+buildData<-movies_merge[inBuild,]
+inTrain<-createDataPartition(y = buildData$popularity, p = .7, list = FALSE)
+
+trainset<-buildData[inTrain,]  # train set
+testset<-buildData[-inTrain,]  # test set
+
+dim(trainset)
+dim(testset)
+dim(validationset)
+```
+
+```{r}
+set.seed(100)
+trnCtrl <- trainControl(method = "repeatedcv",
+                        repeats = 10 ,   # 10 fold cross validation for 3 times
+                        number = 3) 
+
+mod1<-train(popularity ~ ., method="knn", data=trainset)
+#mod1$finalModel
+mod2<-train(popularity ~ ., method="rpart", data=trainset, trControl = trnCtrl)
+
+# prediction on test set
+pred1<-predict(mod1, testset)
+pred2<-predict(mod2, testset)
+
+
+#qplot(pred1, pred2, colour=popularity, data=testset, xlim = c(50, 200), ylim = c(50, 200))
+ggplot(testset, aes(x=pred1, y=pred2)) +
+  geom_point(data=testset, aes(x=pred1, y=pred2, colour=popularity)) +
+  geom_abline(intercept = 0, slope = 1) +
+  xlim(50, 200) +
+  ylim(50, 200)
+```
+
+
+
+
+
+#
+```{r}
+movies %>% select(original_title,budget) %>% drop_na(original_title)%>% arrange(desc(budget)) %>% head(10) %>%  ggplot(aes(reorder(original_title,budget),budget,fill=original_title))+geom_bar(stat="identity")+theme(axis.text.x = element_text(angle=90),plot.title=element_text(color="Red",face="italic"),legend.position="none")+scale_y_continuous(labels=scales::comma)+labs(x="",y="Total Budget in $",title="Most Expensive Movies -Top 10")
+```
+
+
+#DATA CLEANSING AND PARSING
+
+
+```{r}
+parse_cast <- function(cast_text) {
+  text <- 
+    sub("\\£\\$\\£", "",    #drop the first one
+        gsub("\'|\"|\\[|\\]|\\{|\\}|,", "",
+             gsub("\'cast_id\':|\'character\':|\'credit_id\':|\'gender\':|\'id\':|\'name\':|\'order\':|\'profile_path\':", 
+                  "£$£", 
+                  cast_text)
+        )
+    )
+  
+  data <- data.frame(matrix(
+    trimws(unlist(
+        strsplit(text, "\\£\\$\\£")
+        )), 
+    ncol = 8, byrow = TRUE), stringsAsFactors = FALSE)
+  
+  names(data) <- c("cast_id", "character", "credit_id", "gender", "id", "name", "order", "profile_path")
+  data$order <- as.numeric(data$order)
+  
+  return(data %>% select(cast_id, gender, id, name, order))
+}
+
+```
+
+
+
+```{r}
+num_batches <- 50
+batch_interval <- ceiling(nrow(credits) / num_batches)
+batch_brackets <- 0:num_batches * batch_interval
+batch_brackets[num_batches+1] <- nrow(credits)
+batch_brackets[1] <- 1
+
+cast_data <- data.frame()
+for(b_i in 1:num_batches){
+  
+  batch_data <- data.frame()
+  for(b2_i in batch_brackets[b_i]:(batch_brackets[b_i+1]-1)){
+    #print(b2_i)
+    this_cast <- parse_cast(credits$cast[b2_i])
+    if(nrow(this_cast) > 0){
+      this_cast$movie_id <- as.character(credits$id[b2_i])
+      batch_data <- rbind(batch_data, this_cast)
+    }
+  }
+  cast_data <- rbind(cast_data, batch_data)
+  #print(paste0("    done batch ", b_i))
+}
+```
+
+
+
+
+```{r}
+cast_data$movie_id<-as.numeric(cast_data$movie_id)
+str(cast_data)
+cast_data_plus <- 
+  left_join(cast_data, 
+            movies %>% select(id, title, budget, revenue, vote_count, vote_average),
+            by=c("movie_id" = "id"))
+```
+
+```{r}
+cast_data_plus$gender[cast_data_plus$gender==0] <- "Unspecified"
+cast_data_plus$gender[cast_data_plus$gender==1] <- "Female"
+cast_data_plus$gender[cast_data_plus$gender==2] <- "Male"
+cast_data_plus$gender <- factor(cast_data_plus$gender)
+```
+
+
+```{r}
+ggplot(cast_data_plus, aes(x =1, fill = gender)) + 
+  geom_bar(width = 1, position="dodge") +
+  xlab("") +
+  ylab("Number of Roles") +
+  labs(title="Gender of Players in Roles") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+```
+
+
+```{r}
+
+genredf=movies %>% filter(nchar(genres)>2) %>% mutate(js=lapply(genres,fromJSON)) %>% unnest(js) %>% select(id,title,genre=name) #Convert JSON format into data frame
+slice(genredf)
+#genre=aggregate(genre ~.,data=genre,paste,collapse=",") # remove duplicates 
+temp=genredf %>% group_by(genre) %>% summarise(count=length(genre)) %>% arrange(desc(count))#A look at the genre variety in our dataset
+```
+
+
+
+
+
+
+```{r}
+genredf_2$flag<-as.vector(unlist(tapply(genredf_2$title,FUN=function(x){1:length(genredf_2)})));
+
+
+genredf %>% 
+  group_by(title) %>%
+  mutate(flag = row_number())
+```
+
+```{r}
+genredf_2<-subset(genredf, select=-c(id))
+
+```
+
+
+
+
+
+
+```{r}
+genredf=movies %>% filter(nchar(genres)>2) %>% mutate(js=lapply(genres,fromJSON)) %>% unnest(js) %>% select(id,title,genre=name) #Convert JSON format into data frame
+slice(genredf)
+
+
+
+
+
+productionCompanies = movies %>% filter(nchar(production_companies) > 2) %>% mutate(js = lapply(production_companies,fromJSON)) %>% unnest(js) %>% select(id,budget,revenue,production_companies = name)
+
+productionCountries = movies %>% filter(nchar(production_countries) > 2) %>% mutate(js = lapply(production_countries,fromJSON)) %>% unnest(js) %>% select(production_countries = name)
+
+
+SpokenLang = movies %>% filter(nchar(spoken_languages) > 2) %>% mutate(js = lapply(spoken_languages,fromJSON)) %>% unnest(js) %>% select(iso_639_1,spoken_languages = name)
+```
+
+```{r}
+movies_2 <- subset(movies, select = -c(genres, keywords, production_companies, production_countries,spoken_languages))
+glimpse(movies_2)
+```
+
+
+
+```{r}
+genredf_2 <- subset(genredf, select = -c(id))
+genredf_2%>% mutate(group = 1) %>%
+       spread(title, genre)
+```
+
+
+
+
+```{r}
+parse_cast <- function(cast_text) {
+  text <- 
+    sub("\\£\\$\\£", "",    #drop the first one
+        gsub("\'|\"|\\[|\\]|\\{|\\}|,", "",
+             gsub("\'cast_id\':|\'character\':|\'credit_id\':|\'gender\':|\'id\':|\'name\':|\'order\':|\'profile_path\':", 
+                  "£$£", 
+                  cast_text)
+        )
+    )
+  
+  data <- data.frame(matrix(
+    trimws(unlist(
+        strsplit(text, "\\£\\$\\£")
+        )), 
+    ncol = 8, byrow = TRUE), stringsAsFactors = FALSE)
+  
+  names(data) <- c("cast_id", "character", "credit_id", "gender", "id", "name", "order", "profile_path")
+  data$order <- as.numeric(data$order)
+  
+  return(data %>% select(cast_id, gender, id, name, order))
+}
+
+```
