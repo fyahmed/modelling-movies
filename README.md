@@ -1,4 +1,4 @@
-# THE MODEL_MOST POPLULAR MOVIE
+# THE MODEL:MOST POPLULAR MOVIE
 
 develop a model showcasing a movie's popularity based on various variables in a dataset.
 
